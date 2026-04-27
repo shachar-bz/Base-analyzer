@@ -1,7 +1,9 @@
 import csv
 import time
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
@@ -18,6 +20,8 @@ GOOGLE_EARTH_TIME = "0t"
 GOOGLE_EARTH_ROLL = "0r"
 
 PAGE_LOAD_WAIT_SECONDS = 12
+SCREENSHOT_WIDTH_PIXELS = 1024
+JPEG_QUALITY = 90
 
 
 def build_google_earth_url(latitude: str, longitude: str) -> str:
@@ -53,15 +57,31 @@ def screenshot_base(driver: webdriver.Chrome, base_row: dict[str, str]) -> Path:
     latitude = base_row["latitude"]
     longitude = base_row["longitude"]
     earth_url = build_google_earth_url(latitude, longitude)
-    screenshot_path = SCREENSHOTS_DIR / f"base_{base_id}.png"
+    screenshot_path = SCREENSHOTS_DIR / f"base_{base_id}.jpg"
 
     print(f"Opening base {base_id}: {earth_url}")
     driver.get(earth_url)
     time.sleep(PAGE_LOAD_WAIT_SECONDS)
-    driver.save_screenshot(str(screenshot_path))
+    save_resized_jpeg_screenshot(driver, screenshot_path)
     print(f"Saved screenshot: {screenshot_path}")
 
     return screenshot_path
+
+
+def save_resized_jpeg_screenshot(
+    driver: webdriver.Chrome,
+    screenshot_path: Path,
+) -> None:
+    screenshot_png = driver.get_screenshot_as_png()
+
+    with Image.open(BytesIO(screenshot_png)) as image:
+        resize_ratio = SCREENSHOT_WIDTH_PIXELS / image.width
+        resized_height = round(image.height * resize_ratio)
+        resized_image = image.resize(
+            (SCREENSHOT_WIDTH_PIXELS, resized_height),
+            Image.Resampling.LANCZOS,
+        ).convert("RGB")
+        resized_image.save(screenshot_path, format="JPEG", quality=JPEG_QUALITY)
 
 
 def main() -> None:
