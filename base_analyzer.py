@@ -8,7 +8,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
 
-ROWS_TO_PROCCESS = 5
+ROWS_TO_PROCCESS = 1
 CSV_PATH = Path("military_bases.csv")
 SCREENSHOTS_DIR = Path("bases screenshots")
 
