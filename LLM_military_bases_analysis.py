@@ -6,17 +6,13 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 
+
 SCREENSHOTS_DIR = Path("bases screenshots")
-MODEL_NAME = "gpt-5.4-nano"
-PROMPT_TEMPLATE = """You are a military imagery analyst working for US intelligence.
+PROMPT_TEMPLATE = """You are an expert satellite imagery analyst working for the US Army. The provided image shows a military base or facility operated by the armed forces of {country_name}.
 
-Assume the site is military and interpret all observations accordingly.
-We got intel that this area is a base/facility of the military of {country_name}.
+CRITICAL INSTRUCTION: Your entire response must consist of nothing but a single valid JSON object. The output must start with the character {{ and contain only raw, parseable JSON. Do not include any other text, explanations, markdown, code blocks, apologies, or backticks before or after it.
 
-Your task is to analyze the provided satellite image and identify structures, patterns, and objects that support military usage.
-
-Rules:
-- Be direct, concise, and analytical.
+Be direct, concise, and analytical.
 - You may use phrases like "high probability", "likely", or "appears to".
 - Do not include disclaimers about limitations or inability to confirm.
 - Do not explain what you cannot see.
@@ -24,29 +20,28 @@ Rules:
 - Do not use markdown symbols like * or #.
 - Do not write long paragraphs.
 
-Output format:
+Field Requirements:
 
-1. Identified objects and structures
-For each item:
-- Object name
-- Visual observation (what is seen)
-- Likely military function
-- Why it supports military usage
+"findings": Array of strings. Focus on identifying all man-made structures, military equipment, weapon systems, vehicles, aircraft, radar, launchers, bunkers, infrastructure, and activity. Be as specific as the resolution allows.
+"analysis": String. Provide a detailed, professional assessment of the findings, their strategic/tactical significance and capabilities.
+"things_to_continue_analyzing": Array of strings. List specific objects, areas, ambiguities, or questions that require additional imagery - there is no need to explain why we want additional imagery.
+"action": String. Must be exactly one of: "zoom-in", "zoom-out", "move-left", "move-right", or "finish".
+"zoom-in": zoom in the image in order to analysis something or identify in a better way/ more certinty.
+"zoom-out": if the view is too narrow and you need broader context or scale of the facility/surrounding area.
+"move-left" or "move-right": if militarily significant features appear cut off at the edge of the frame.
+"finish": If you have high-confidence understanding of the facility's layout, primary capabilities, and equipment.
 
-2. Overall assessment
-- 2-4 sentences summarizing the role of the site (e.g., logistics, storage, defense, training)
-- Use confident but not absolute language
-
-Focus on:
-- storage infrastructure (fuel tanks, depots, containers)
-- defensive layouts (perimeter, segmentation, controlled access)
-- logistics and movement (roads, staging areas, vehicle paths)
-- spatial organization typical of military bases
-
-Do not include any additional explanations outside this structure."""
+here there is an example of the exact structure you need to respond with
+{{
+  "findings": [],
+  "analysis": "",
+  "things_to_continue_analyzing": [],
+  "action": "finish"
+}}"""
 
 load_dotenv()
-API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("GEMINI_API_KEY")
+MODEL_NAME = "gemini-2.5-flash"
 
 
 def encode_jpg_image_as_data_url(image_path: Path) -> str:
@@ -60,7 +55,10 @@ def analyze_military_base_screenshots(country_name: str) -> None:
     if not API_KEY:
         raise ValueError("OPENAI_API_KEY was not found in the .env file.")
 
-    client = OpenAI(api_key=API_KEY)
+    client = OpenAI(
+        api_key=API_KEY,
+         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
 
     image_paths = [
         image_path
@@ -77,27 +75,30 @@ def analyze_military_base_screenshots(country_name: str) -> None:
     for image_path in image_paths:
         print(f"\nAnalyzing {image_path}...")
 
-        response = client.responses.create(
-            model=MODEL_NAME,
-            input=[
+        response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
                 {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {
-                            "type": "input_image",
-                            "image_url": encode_jpg_image_as_data_url(image_path),
-                        },
-                    ],
-                }
+                    "type": "image_url",
+                    "image_url": {
+                        "url": encode_jpg_image_as_data_url(image_path),
+                    },
+                },
             ],
-        )
+        }
+    ],
+    )
 
-        print(response.output_text)
+    print(response.choices[0].message.content)
+
 
 
 def main() -> None:
-    country_name = input("Enter country name: ").strip()
+    country_name = "Egypt"
 
     if not country_name:
         print("Country name is required.")

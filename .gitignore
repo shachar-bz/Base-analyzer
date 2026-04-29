@@ -1,4 +1,6 @@
 __pycache__/
 .venv/
+.selenium/
+chromedriver/
 military_bases.csv
 .env
