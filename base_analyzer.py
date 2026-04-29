@@ -1,9 +1,11 @@
 import csv
+import json
 import os
 import time
 from io import BytesIO
 from pathlib import Path
 
+from LLM_military_bases_analysis import analyze_military_base
 from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -14,6 +16,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 ROWS_TO_PROCCESS = 1
+NUM_ANALYSIS_QUESTIONS = 2
+
+ZOOM_IN_MULTIPLIER = 0.7
+ZOOM_OUT_MULTIPLIER = 1.5
+MOVE_LEFT_HEADING_DELTA = -30
+MOVE_RIGHT_HEADING_DELTA = 30
+
 CSV_PATH = Path("military_bases.csv")
 SCREENSHOTS_DIR = Path("bases screenshots")
 SELENIUM_DIR = Path(".selenium")
@@ -41,14 +50,19 @@ GOOGLE_EARTH_LEFT_CROP_PIXELS = 0
 GOOGLE_EARTH_RIGHT_CROP_PIXELS = 0
 
 
-def build_google_earth_url(latitude: str, longitude: str) -> str:
+def build_google_earth_url(
+    latitude: str,
+    longitude: str,
+    distance: str = GOOGLE_EARTH_DISTANCE,
+    heading: str = GOOGLE_EARTH_HEADING,
+) -> str:
     return (
         "https://earth.google.com/web/"
         f"@{latitude},{longitude},"
         f"{GOOGLE_EARTH_ALTITUDE},"
-        f"{GOOGLE_EARTH_DISTANCE},"
+        f"{distance},"
         f"{GOOGLE_EARTH_TILT},"
-        f"{GOOGLE_EARTH_HEADING},"
+        f"{heading},"
         f"{GOOGLE_EARTH_TIME},"
         f"{GOOGLE_EARTH_ROLL}"
     )
@@ -71,16 +85,42 @@ def create_driver() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 
-def read_base_rows(csv_path: Path, rows_to_process: int) -> list[dict[str, str]]:
+def read_base_rows(
+    csv_path: Path,
+    rows_to_process: int = ROWS_TO_PROCCESS,
+) -> list[dict[str, str]]:
+    base_rows = []
+
     with csv_path.open(newline="", encoding="utf-8") as csv_file:
-        return list(csv.DictReader(csv_file))[:rows_to_process]
+        reader = csv.DictReader(csv_file)
+
+        for _ in range(rows_to_process):
+            try:
+                row = next(reader)
+            except StopIteration:
+                break
+
+            base_rows.append(
+                {
+                    "country_name": (row.get("country") or"").strip(),
+                    "latitude": (row.get("latitude") or "").strip(),
+                    "longitude": (row.get("longitude") or "").strip(),
+                }
+            )
+
+    return base_rows
 
 
-def screenshot_base(driver: webdriver.Chrome, base_row: dict[str, str]) -> Path:
+def screenshot_base(
+    driver: webdriver.Chrome,
+    base_row: dict[str, str],
+    distance: str = GOOGLE_EARTH_DISTANCE,
+    heading: str = GOOGLE_EARTH_HEADING,
+) -> Path:
     base_id = base_row["id"]
     latitude = base_row["latitude"]
     longitude = base_row["longitude"]
-    earth_url = build_google_earth_url(latitude, longitude)
+    earth_url = build_google_earth_url(latitude, longitude, distance, heading)
     screenshot_path = SCREENSHOTS_DIR / f"base_{base_id}.jpg"
 
     print(f"Opening base {base_id}: {earth_url}")
@@ -194,20 +234,74 @@ def crop_google_earth_viewport(image: Image.Image) -> Image.Image:
     return image.crop((left, top, right, bottom))
 
 
-def main() -> None:
+def get_overall_analyzation(country_name, latitude, longitude) -> str:
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
-    base_rows = read_base_rows(CSV_PATH, ROWS_TO_PROCCESS)
 
-    if not base_rows:
-        print(f"No rows found in {CSV_PATH}")
-        return
+    distance = float(GOOGLE_EARTH_DISTANCE.rstrip("d"))
+    heading = float(GOOGLE_EARTH_HEADING.rstrip("h"))
+    history_of_analysts = ""
+    history_records = []
 
     driver = create_driver()
     try:
-        for base_row in base_rows:
-            screenshot_base(driver, base_row)
+        for analysis_index in range(NUM_ANALYSIS_QUESTIONS):
+            screenshot_path = screenshot_base(
+                driver,
+                {
+                    "id": f"{latitude}_{longitude}_{analysis_index + 1}",
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+                f"{distance}d",
+                f"{heading}h",
+            )
+
+            llm_response = analyze_military_base(
+                country_name,
+                analysis_index > 0,
+                screenshot_path,
+                history_of_analysts,
+            )
+            print(llm_response)
+
+            llm_response_json = json.loads(llm_response)
+            history_records.append(
+                {
+                    "findings": llm_response_json.get("findings", []),
+                    "analysis": llm_response_json.get("analysis", ""),
+                    "things_to_continue_analyzing": llm_response_json.get(
+                        "things_to_continue_analyzing",
+                        [],
+                    ),
+                }
+            )
+            history_of_analysts = json.dumps(history_records)
+
+            action = llm_response_json.get("action")
+            if not action or action == "finish":
+                break
+
+            if action == "zoom-in":
+                distance *= ZOOM_IN_MULTIPLIER
+            elif action == "zoom-out":
+                distance *= ZOOM_OUT_MULTIPLIER
+            elif action == "move-left":
+                heading += MOVE_LEFT_HEADING_DELTA
+            elif action == "move-right":
+                heading += MOVE_RIGHT_HEADING_DELTA
+            else:
+                break
     finally:
         driver.quit()
+
+    return history_of_analysts
+
+
+def main() -> None:
+    SCREENSHOTS_DIR.mkdir(exist_ok=True)
+    base_rows = read_base_rows(CSV_PATH, ROWS_TO_PROCCESS)
+    get_overall_analyzation(base_rows[0]["country_name"], base_rows[0]["latitude"], base_rows[0]["longitude"])
+    
 
 
 if __name__ == "__main__":

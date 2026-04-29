@@ -4,3 +4,4 @@ __pycache__/
 chromedriver/
 military_bases.csv
 .env
+bases_screenshots/
