@@ -16,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-ROWS_TO_PROCCESS = 8
+ROWS_TO_PROCCESS = 14
 NUM_ANALYSIS_QUESTIONS = 8
 
 ZOOM_IN_MULTIPLIER = 0.85
