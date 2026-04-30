@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import tempfile
 import time
 from io import BytesIO
 from pathlib import Path
@@ -15,32 +16,35 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-ROWS_TO_PROCCESS = 1
-NUM_ANALYSIS_QUESTIONS = 2
+ROWS_TO_PROCCESS = 8
+NUM_ANALYSIS_QUESTIONS = 8
 
-ZOOM_IN_MULTIPLIER = 0.65
-ZOOM_OUT_MULTIPLIER = 1.5
-MOVE_LEFT_HEADING_DELTA = -30
-MOVE_RIGHT_HEADING_DELTA = 30
+ZOOM_IN_MULTIPLIER = 0.85
+ZOOM_OUT_MULTIPLIER = 1.2
+MOVE_LEFT_LONGITUDE_DELTA = -0.002
+MOVE_RIGHT_LONGITUDE_DELTA = 0.002
 
 CSV_PATH = Path("military_bases.csv")
-SCREENSHOTS_DIR = Path("bases screenshots")
+DATA_PATH = Path("data.json")
+SCREENSHOTS_DIR = Path("bases_screenshots")
 SELENIUM_DIR = Path(".selenium")
 CHROME_PROFILE_DIR = SELENIUM_DIR / "chrome-profile"
 CHROME_CACHE_DIR = SELENIUM_DIR / "chrome-cache"
 SELENIUM_MANAGER_CACHE_DIR = SELENIUM_DIR / "manager-cache"
 
 GOOGLE_EARTH_ALTITUDE = "10.04969521a"
-GOOGLE_EARTH_DISTANCE = "1825.78590766d"
+GOOGLE_EARTH_DISTANCE = "1650d"
 GOOGLE_EARTH_TILT = "30.00000016y"
 GOOGLE_EARTH_HEADING = "-0h"
 GOOGLE_EARTH_TIME = "0t"
 GOOGLE_EARTH_ROLL = "0r"
 
-PAGE_LOAD_WAIT_SECONDS = 12
+PAGE_LOAD_WAIT_SECONDS = 10
 UI_CLEANUP_WAIT_SECONDS = 4
 SCREENSHOT_WIDTH_PIXELS = 1024
 JPEG_QUALITY = 90
+GOOGLE_EARTH_BLOCK_RETRY_WAIT_SECONDS = 30
+MAX_CONSECUTIVE_GOOGLE_EARTH_FAILURES = 2
 
 
 def build_google_earth_url(
@@ -78,10 +82,7 @@ def create_driver() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 
-def read_base_rows(
-    csv_path: Path,
-    rows_to_process: int = ROWS_TO_PROCCESS,
-) -> list[dict[str, str]]:
+def read_base_rows(csv_path: Path,rows_to_process: int = ROWS_TO_PROCCESS,) -> list[dict[str, str]]:
     base_rows = []
 
     with csv_path.open(newline="", encoding="utf-8") as csv_file:
@@ -95,6 +96,7 @@ def read_base_rows(
 
             base_rows.append(
                 {
+                    "id": (row.get("id") or "").strip(),
                     "country_name": (row.get("country") or"").strip(),
                     "latitude": (row.get("latitude") or "").strip(),
                     "longitude": (row.get("longitude") or "").strip(),
@@ -104,17 +106,36 @@ def read_base_rows(
     return base_rows
 
 
+def load_analysis_data(data_path: Path) -> dict:
+    if not data_path.exists():
+        return {}
+
+    with data_path.open(encoding="utf-8") as data_file:
+        try:
+            return json.load(data_file)
+        except json.JSONDecodeError:
+            return {}
+
+
+def save_analysis_data(data_path: Path, analysis_data: dict) -> None:
+    with data_path.open("w", encoding="utf-8") as data_file:
+        json.dump(analysis_data, data_file, indent=2)
+
+
 def screenshot_base(
     driver: webdriver.Chrome,
     base_row: dict[str, str],
     distance: str = GOOGLE_EARTH_DISTANCE,
     heading: str = GOOGLE_EARTH_HEADING,
+    screenshot_path: Path | None = None,
 ) -> Path:
     base_id = base_row["id"]
     latitude = base_row["latitude"]
     longitude = base_row["longitude"]
     earth_url = build_google_earth_url(latitude, longitude, distance, heading)
-    screenshot_path = SCREENSHOTS_DIR / f"base_{base_id}.jpg"
+
+    if screenshot_path is None:
+        screenshot_path = SCREENSHOTS_DIR / f"base_{base_id}.jpg"
 
     print(f"Opening base {base_id}: {earth_url}")
     driver.get(earth_url)
@@ -214,37 +235,109 @@ def save_resized_jpeg_screenshot(
         resized_image.save(screenshot_path, format="JPEG", quality=JPEG_QUALITY)
 
 
-def get_overall_analyzation(country_name, latitude, longitude) -> str:
+def get_overall_analyzation(country_name, base_id, latitude, longitude) -> str:
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
     distance = float(GOOGLE_EARTH_DISTANCE.rstrip("d"))
-    heading = float(GOOGLE_EARTH_HEADING.rstrip("h"))
+    current_longitude = float(longitude)
+    heading = GOOGLE_EARTH_HEADING
     history_of_analysts = ""
     history_records = []
+    saved_base_screenshot_path = SCREENSHOTS_DIR / f"{country_name}_{base_id}_base.jpg"
 
-    driver = create_driver()
+    driver = None
+    consecutive_google_earth_failures = 0
     try:
         for analysis_index in range(NUM_ANALYSIS_QUESTIONS):
-            screenshot_path = screenshot_base(
-                driver,
-                {
-                    "id": f"{latitude}_{longitude}_{analysis_index + 1}",
-                    "latitude": latitude,
-                    "longitude": longitude,
-                },
-                f"{distance}d",
-                f"{heading}h",
-            )
+            temporary_screenshot_path = None
+            if analysis_index == 0:
+                screenshot_path = saved_base_screenshot_path
+            else:
+                temporary_screenshot = tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=".jpg",
+                )
+                temporary_screenshot_path = Path(temporary_screenshot.name)
+                temporary_screenshot.close()
+                screenshot_path = temporary_screenshot_path
 
-            llm_response = analyze_military_base(
-                country_name,
-                analysis_index > 0,
-                screenshot_path,
-                history_of_analysts,
-            )
-            print(llm_response)
+            while True:
+                try:
+                    if driver is None:
+                        driver = create_driver()
+
+                    screenshot_path = screenshot_base(
+                        driver,
+                        {
+                            "id": base_id,
+                            "latitude": latitude,
+                            "longitude": str(current_longitude),
+                        },
+                        f"{distance}d",
+                        heading,
+                        screenshot_path,
+                    )
+                    consecutive_google_earth_failures = 0
+                    break
+                except Exception as error:
+                    consecutive_google_earth_failures += 1
+                    print(
+                        f"Failed opening Google Earth/Chrome for base {base_id} "
+                        f"({country_name}), analysis {analysis_index + 1}: {error}"
+                    )
+
+                    if driver is not None:
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
+                        driver = None
+
+                    if temporary_screenshot_path is not None:
+                        temporary_screenshot_path.unlink(missing_ok=True)
+
+                    print(
+                        "Sleeping for "
+                        f"{GOOGLE_EARTH_BLOCK_RETRY_WAIT_SECONDS} seconds."
+                    )
+                    time.sleep(GOOGLE_EARTH_BLOCK_RETRY_WAIT_SECONDS)
+
+                    if (
+                        consecutive_google_earth_failures
+                        >= MAX_CONSECUTIVE_GOOGLE_EARTH_FAILURES
+                    ):
+                        print(
+                            f"Failed to analyze base {base_id} ({country_name}) "
+                            f"at analysis {analysis_index + 1}: {error}. "
+                            "Got blocked twice, end program"
+                        )
+                        raise SystemExit(1)
+
+            history_for_next_analyst = [
+                {
+                    "findings": history_record.get("findings", []),
+                    "things_to_continue_analyzing": history_record.get(
+                        "things_to_continue_analyzing",
+                        [],
+                    ),
+                }
+                for history_record in history_records
+            ]
+            history_of_previous_analysts = json.dumps(history_for_next_analyst)
+            try:
+                llm_response = analyze_military_base(
+                    country_name,
+                    analysis_index > 0,
+                    screenshot_path,
+                    history_of_previous_analysts,
+                )
+            finally:
+                if temporary_screenshot_path is not None:
+                    temporary_screenshot_path.unlink(missing_ok=True)
 
             llm_response_json = json.loads(llm_response)
+            action = llm_response_json.get("action")
+            print(f"Action for base {base_id}, analysis {analysis_index + 1}: {action}")
             history_records.append(
                 {
                     "findings": llm_response_json.get("findings", []),
@@ -257,7 +350,6 @@ def get_overall_analyzation(country_name, latitude, longitude) -> str:
             )
             history_of_analysts = json.dumps(history_records)
 
-            action = llm_response_json.get("action")
             if not action or action == "finish":
                 break
 
@@ -266,25 +358,50 @@ def get_overall_analyzation(country_name, latitude, longitude) -> str:
             elif action == "zoom-out":
                 distance *= ZOOM_OUT_MULTIPLIER
             elif action == "move-left":
-                heading += MOVE_LEFT_HEADING_DELTA
+                current_longitude += MOVE_LEFT_LONGITUDE_DELTA
             elif action == "move-right":
-                heading += MOVE_RIGHT_HEADING_DELTA
+                current_longitude += MOVE_RIGHT_LONGITUDE_DELTA
             else:
                 break
     finally:
-        driver.quit()
+        if driver is not None:
+            driver.quit()
 
     return history_of_analysts
 
 def get_commander_analysis(history_of_analysts):
-     print(commander_analysis(history_of_analysts))
+    commander_response = commander_analysis(history_of_analysts)
+    return json.loads(commander_response)
 
 
 def main() -> None:
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
     base_rows = read_base_rows(CSV_PATH, ROWS_TO_PROCCESS)
-    history_of_analysts = get_overall_analyzation(base_rows[0]["country_name"], base_rows[0]["latitude"], base_rows[0]["longitude"])
-    get_commander_analysis(history_of_analysts)
+    analysis_data = load_analysis_data(DATA_PATH)
+
+    for base_row in base_rows:
+        base_id = base_row["id"]
+
+        if base_id in analysis_data:
+            print(f"Skipping base {base_id}; already exists in {DATA_PATH}.")
+            continue
+
+        history_of_analysts = get_overall_analyzation(
+            base_row["country_name"],
+            base_id,
+            base_row["latitude"],
+            base_row["longitude"],
+        )
+        commander_summary = get_commander_analysis(history_of_analysts)
+
+        analysis_data[base_id] = {
+            "country": base_row["country_name"],
+            "latitude": base_row["latitude"],
+            "longitude": base_row["longitude"],
+            "analyst_history": json.loads(history_of_analysts),
+            "commander_summary": commander_summary,
+        }
+        save_analysis_data(DATA_PATH, analysis_data)
 
 
 if __name__ == "__main__":
