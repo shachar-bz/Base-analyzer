@@ -5,7 +5,7 @@ import time
 from io import BytesIO
 from pathlib import Path
 
-from LLM_military_bases_analysis import analyze_military_base
+from LLM_military_bases_analysis import analyze_military_base, commander_analysis
 from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -18,7 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 ROWS_TO_PROCCESS = 1
 NUM_ANALYSIS_QUESTIONS = 2
 
-ZOOM_IN_MULTIPLIER = 0.7
+ZOOM_IN_MULTIPLIER = 0.65
 ZOOM_OUT_MULTIPLIER = 1.5
 MOVE_LEFT_HEADING_DELTA = -30
 MOVE_RIGHT_HEADING_DELTA = 30
@@ -41,13 +41,6 @@ PAGE_LOAD_WAIT_SECONDS = 12
 UI_CLEANUP_WAIT_SECONDS = 4
 SCREENSHOT_WIDTH_PIXELS = 1024
 JPEG_QUALITY = 90
-
-# Google Earth renders its controls inside the page. The crop removes the app
-# toolbar at the top and the navigation/status controls at the bottom.
-GOOGLE_EARTH_TOP_CROP_PIXELS = 155
-GOOGLE_EARTH_BOTTOM_CROP_PIXELS = 225
-GOOGLE_EARTH_LEFT_CROP_PIXELS = 0
-GOOGLE_EARTH_RIGHT_CROP_PIXELS = 0
 
 
 def build_google_earth_url(
@@ -212,26 +205,13 @@ def save_resized_jpeg_screenshot(
     screenshot_png = driver.get_screenshot_as_png()
 
     with Image.open(BytesIO(screenshot_png)) as image:
-        cropped_image = crop_google_earth_viewport(image)
-        resize_ratio = SCREENSHOT_WIDTH_PIXELS / cropped_image.width
-        resized_height = round(cropped_image.height * resize_ratio)
-        resized_image = cropped_image.resize(
+        resize_ratio = SCREENSHOT_WIDTH_PIXELS / image.width
+        resized_height = round(image.height * resize_ratio)
+        resized_image = image.resize(
             (SCREENSHOT_WIDTH_PIXELS, resized_height),
             Image.Resampling.LANCZOS,
         ).convert("RGB")
         resized_image.save(screenshot_path, format="JPEG", quality=JPEG_QUALITY)
-
-
-def crop_google_earth_viewport(image: Image.Image) -> Image.Image:
-    left = GOOGLE_EARTH_LEFT_CROP_PIXELS
-    top = GOOGLE_EARTH_TOP_CROP_PIXELS
-    right = image.width - GOOGLE_EARTH_RIGHT_CROP_PIXELS
-    bottom = image.height - GOOGLE_EARTH_BOTTOM_CROP_PIXELS
-
-    if right <= left or bottom <= top:
-        return image
-
-    return image.crop((left, top, right, bottom))
 
 
 def get_overall_analyzation(country_name, latitude, longitude) -> str:
@@ -296,12 +276,15 @@ def get_overall_analyzation(country_name, latitude, longitude) -> str:
 
     return history_of_analysts
 
+def get_commander_analysis(history_of_analysts):
+     print(commander_analysis(history_of_analysts))
+
 
 def main() -> None:
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
     base_rows = read_base_rows(CSV_PATH, ROWS_TO_PROCCESS)
-    get_overall_analyzation(base_rows[0]["country_name"], base_rows[0]["latitude"], base_rows[0]["longitude"])
-    
+    history_of_analysts = get_overall_analyzation(base_rows[0]["country_name"], base_rows[0]["latitude"], base_rows[0]["longitude"])
+    get_commander_analysis(history_of_analysts)
 
 
 if __name__ == "__main__":
