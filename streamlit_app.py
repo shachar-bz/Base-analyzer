@@ -1,6 +1,5 @@
 import json
 from collections import defaultdict
-from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -11,160 +10,12 @@ from Object_detection import detect_objects_in_image
 
 DATA_PATH = Path("data.json")
 SCREENSHOTS_DIR = Path("bases_screenshots")
-MAP_PAGE_LABEL = "Map"
-COUNTRY_FLAGS = {
-    "Egypt": "\U0001f1ea\U0001f1ec",
-    "Korea": "\U0001f1f0\U0001f1f7",
-    "Russia": "\U0001f1f7\U0001f1fa",
-}
-COUNTRY_REGIONS = {
-    "Egypt": "North Africa",
-    "Korea": "East Asia",
-    "Russia": "Eurasia",
-}
-DEFAULT_IMAGE_DATE = "Not available"
-DEFAULT_CAMERA_ALTITUDE = "10.04969521a"
-DEFAULT_SCALE = "1650d"
-
-
-def apply_custom_css() -> None:
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] {
-            width: 240px !important;
-            min-width: 240px !important;
-        }
-
-        [data-testid="stSidebar"] > div:first-child {
-            width: 240px !important;
-            min-width: 240px !important;
-        }
-
-        [data-testid="stSidebar"] * {
-            font-size: 14px !important;
-        }
-
-        [data-testid="stSidebar"] .stButton > button {
-            background: transparent !important;
-            color: inherit !important;
-            border: 1px solid rgba(49, 51, 63, 0.2) !important;
-        }
-
-        .country-divider {
-            border: 0;
-            border-top: 1px solid rgba(49, 51, 63, 0.18);
-            margin: 0.65rem 0;
-        }
-
-        .page-title {
-            font-size: 28px;
-            font-weight: 500;
-            line-height: 1.25;
-            margin: 0 0 0.75rem 0;
-        }
-
-        div[data-testid="stMarkdownContainer"],
-        div[data-testid="stMarkdownContainer"] p,
-        div[data-testid="stMarkdownContainer"] li,
-        .stText,
-        p,
-        li {
-            font-size: 15px;
-            line-height: 1.7;
-        }
-
-        button[data-baseweb="tab"] p {
-            font-size: 14px !important;
-        }
-
-        .metadata-panel {
-            border: 1px solid rgba(49, 51, 63, 0.16);
-            border-radius: 8px;
-            padding: 1rem;
-            background: rgba(248, 249, 251, 0.7);
-        }
-
-        .metadata-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 1rem;
-            padding: 0.45rem 0;
-            border-bottom: 1px solid rgba(49, 51, 63, 0.08);
-            font-size: 15px;
-            line-height: 1.7;
-        }
-
-        .metadata-row:last-child {
-            border-bottom: 0;
-        }
-
-        .metadata-label {
-            color: rgba(49, 51, 63, 0.68);
-            font-weight: 500;
-        }
-
-        .metadata-value {
-            color: rgb(49, 51, 63);
-            font-weight: 500;
-            text-align: right;
-        }
-
-        .object-detection-title {
-            font-size: 16px;
-            font-weight: 500;
-            line-height: 1.35;
-            margin: 1.1rem 0 0.15rem 0;
-        }
-
-        .object-detection-description {
-            color: rgba(49, 51, 63, 0.62);
-            font-size: 13px;
-            line-height: 1.45;
-            margin: 0 0 0.55rem 0;
-        }
-
-        div[data-testid="stTextInput"] input {
-            border: 1px solid rgba(37, 99, 235, 0.45) !important;
-            border-radius: 6px !important;
-        }
-
-        section.main .stButton > button {
-            background: #2563eb !important;
-            color: #ffffff !important;
-            border: 1px solid #2563eb !important;
-            font-weight: 600 !important;
-            border-radius: 6px !important;
-        }
-
-        section.main .stButton > button:hover {
-            background: #1d4ed8 !important;
-            border-color: #1d4ed8 !important;
-            color: #ffffff !important;
-        }
-
-        [data-testid="stDataFrame"] div[role="row"] {
-            min-height: 44px !important;
-        }
-
-        [data-testid="stDataFrame"] div[role="gridcell"] {
-            font-size: 14px !important;
-            padding-top: 10px !important;
-            padding-bottom: 10px !important;
-        }
-
-        [data-testid="stDataFrame"] div[role="columnheader"] {
-            font-size: 14px !important;
-            font-weight: 700 !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+MAP_PAGE_LABEL = "🌐 Global Overview"
+ANALYSIS_KEYS = {"analyst_history", "commander_summary"}
 
 
 def render_page_title(title: str) -> None:
-    st.markdown(f'<h1 class="page-title">{escape(title)}</h1>', unsafe_allow_html=True)
+    st.title(title)
 
 
 def load_base_data() -> dict[str, dict[str, Any]]:
@@ -198,37 +49,6 @@ def clean_list_item(value: Any) -> str:
     return text[1:].strip() if text.startswith("-") else text
 
 
-def split_confidence_prefix(text: str) -> tuple[str | None, str]:
-    confidence_prefixes = {
-        "High confidence:": "high",
-        "Medium confidence:": "medium",
-        "Low confidence:": "low",
-    }
-
-    for prefix, confidence in confidence_prefixes.items():
-        if text.startswith(prefix):
-            return confidence, text[len(prefix) :].strip()
-
-    return None, text
-
-
-def confidence_dot(confidence: str | None) -> str:
-    dot_colors = {
-        "high": "#16a34a",
-        "medium": "#d97706",
-        "low": "#dc2626",
-    }
-    color = dot_colors.get(confidence)
-
-    if not color:
-        return ""
-
-    return (
-        f'<span style="display:inline-block;width:0.65rem;height:0.65rem;'
-        f'border-radius:50%;background:{color};margin-right:0.45rem;"></span>'
-    )
-
-
 def as_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -246,17 +66,7 @@ def render_bullets(items: Any, empty_text: str = "No data available.") -> None:
         return
 
     for item in cleaned_items:
-        confidence, text = split_confidence_prefix(item)
-        dot = confidence_dot(confidence)
-        st.markdown(
-            f'<div class="analysis-bullet">{dot}{escape(text)}</div>',
-            unsafe_allow_html=True,
-        )
-
-
-def base_label(base_id: str, base_data: dict[str, Any]) -> str:
-    country = base_data.get("country") or "Unknown"
-    return f"{country} - {base_id}"
+        st.markdown(f"- {item}")
 
 
 def sort_base_id(base_id: str, base_data: dict[str, Any]) -> tuple[str, int, int | str]:
@@ -265,20 +75,6 @@ def sort_base_id(base_id: str, base_data: dict[str, Any]) -> tuple[str, int, int
         return (country, 0, int(base_id))
 
     return (country, 1, str(base_id))
-
-
-def country_label(country: str) -> str:
-    flag = COUNTRY_FLAGS.get(country)
-    return f"{flag} {country}" if flag else country
-
-
-def get_base_region(base_data: dict[str, Any]) -> str:
-    explicit_region = base_data.get("region")
-    if explicit_region:
-        return str(explicit_region)
-
-    country = str(base_data.get("country") or "Unknown")
-    return COUNTRY_REGIONS.get(country, country)
 
 
 def group_base_ids_by_country(
@@ -299,51 +95,25 @@ def get_base_image_path(base_id: str, base_data: dict[str, Any]) -> Path:
     return SCREENSHOTS_DIR / f"{country}_{base_id}_base.jpg"
 
 
-def get_metadata_value(base_data: dict[str, Any], keys: tuple[str, ...], default: str) -> str:
-    for key in keys:
-        value = base_data.get(key)
-        if value not in (None, ""):
-            return str(value)
+def is_displayable_metadata(value: Any) -> bool:
+    return isinstance(value, str | int | float | bool) and value != ""
 
-    return default
+
+def humanize_key(key: str) -> str:
+    return key.replace("_", " ").strip().title()
 
 
 def render_metadata_panel(base_data: dict[str, Any]) -> None:
     metadata_rows = [
-        ("Latitude", get_metadata_value(base_data, ("latitude",), "Unknown")),
-        ("Longitude", get_metadata_value(base_data, ("longitude",), "Unknown")),
-        (
-            "Image date",
-            get_metadata_value(
-                base_data,
-                ("image_date", "imageDate", "date"),
-                DEFAULT_IMAGE_DATE,
-            ),
-        ),
-        (
-            "Camera altitude",
-            get_metadata_value(
-                base_data,
-                ("camera_altitude", "cameraAltitude", "altitude"),
-                DEFAULT_CAMERA_ALTITUDE,
-            ),
-        ),
-        (
-            "Scale",
-            get_metadata_value(base_data, ("scale", "camera_distance"), DEFAULT_SCALE),
-        ),
+        {"Field": humanize_key(key), "Value": value}
+        for key, value in base_data.items()
+        if key not in ANALYSIS_KEYS and is_displayable_metadata(value)
     ]
-    rows_html = "".join(
-        (
-            '<div class="metadata-row">'
-            f'<span class="metadata-label">{escape(label)}</span>'
-            f'<span class="metadata-value">{escape(value)}</span>'
-            "</div>"
-        )
-        for label, value in metadata_rows
-    )
 
-    st.markdown(f'<div class="metadata-panel">{rows_html}</div>', unsafe_allow_html=True)
+    if metadata_rows:
+        st.dataframe(metadata_rows, hide_index=True, use_container_width=True)
+    else:
+        st.caption("No metadata available.")
 
 
 def build_map_rows(data: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -368,32 +138,84 @@ def build_map_rows(data: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return map_rows
 
 
+def collect_display_keys(data: dict[str, dict[str, Any]]) -> list[str]:
+    display_keys = []
+
+    for base_data in data.values():
+        for key, value in base_data.items():
+            if (
+                key not in ANALYSIS_KEYS
+                and key not in display_keys
+                and is_displayable_metadata(value)
+            ):
+                display_keys.append(key)
+
+    return display_keys
+
+
+def build_table_rows(
+    data: dict[str, dict[str, Any]],
+    base_ids: list[str],
+) -> list[dict[str, Any]]:
+    display_keys = collect_display_keys(data)
+    table_rows = []
+
+    for base_id in base_ids:
+        base_data = data[base_id]
+        row = {"id": base_id}
+        for key in display_keys:
+            row[humanize_key(key)] = base_data.get(key, "")
+        table_rows.append(row)
+
+    return table_rows
+
+
+def count_distinct_values(data: dict[str, dict[str, Any]], key: str) -> int:
+    return len(
+        {
+            str(base_data[key])
+            for base_data in data.values()
+            if is_displayable_metadata(base_data.get(key))
+        }
+    )
+
+
+def render_data_metrics(data: dict[str, dict[str, Any]]) -> None:
+    metrics = [("Bases", len(data))]
+
+    if any(is_displayable_metadata(base_data.get("country")) for base_data in data.values()):
+        metrics.append(("Countries", count_distinct_values(data, "country")))
+
+    if any(is_displayable_metadata(base_data.get("region")) for base_data in data.values()):
+        metrics.append(("Regions", count_distinct_values(data, "region")))
+
+    columns = st.columns(len(metrics))
+    for column, (label, value) in zip(columns, metrics):
+        column.metric(label, value)
+
+
 def render_map_page(data: dict[str, dict[str, Any]]) -> None:
-    render_page_title("Military Bases Map")
+    render_page_title("🌐 Global Overview")
 
     map_rows = build_map_rows(data)
     if not map_rows:
         st.warning("No bases with valid latitude and longitude were found.")
         return
 
-    countries_count = len(
-        {
-            base_data.get("country")
-            for base_data in data.values()
-            if base_data.get("country")
-        }
+    sorted_base_ids = sorted(
+        data.keys(),
+        key=lambda base_id: sort_base_id(base_id, data[base_id]),
     )
-    regions_count = len({get_base_region(base_data) for base_data in data.values()})
 
-    total_bases_column, countries_column, regions_column = st.columns(3)
-    total_bases_column.metric("Total Bases", len(data))
-    countries_column.metric("Countries", countries_count)
-    regions_column.metric("Regions", regions_count)
+    _, map_column, _ = st.columns([1, 3, 1])
+    with map_column:
+        render_data_metrics(data)
+        st.subheader("🗺️ Map")
+        st.map(map_rows, latitude="lat", longitude="lon", size=50, height=380)
 
-    st.map(map_rows, latitude="lat", longitude="lon", size=50, height=430)
+    st.subheader("Bases")
     st.dataframe(
-        map_rows,
-        column_order=("country", "id", "lat", "lon"),
+        build_table_rows(data, sorted_base_ids),
         hide_index=True,
         use_container_width=True,
     )
@@ -407,10 +229,10 @@ def render_commander_tab(commander_summary: dict[str, Any]) -> None:
     else:
         st.caption("No summary available.")
 
-    st.subheader("Commander Analysis")
+    st.subheader("🧠 Commander Analysis")
     render_bullets(commander_summary.get("supported_observations"))
 
-    st.subheader("Recommendations")
+    st.subheader("✅ Recommendations")
     render_bullets(commander_summary.get("recommendations"))
 
 
@@ -430,28 +252,18 @@ def render_object_detection_section(
     image_path: Path,
     image_slot: st.delta_generator.DeltaGenerator,
 ) -> None:
-    st.markdown(
-        '<div class="object-detection-title">Detect objects in this image</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        (
-            '<div class="object-detection-description">'
-            "Enter any object to locate it within the satellite imagery"
-            "</div>"
-        ),
-        unsafe_allow_html=True,
-    )
+    st.subheader("Detect objects in this image")
+    st.caption("Enter any object to locate it within the satellite imagery.")
 
     input_column, button_column = st.columns([3, 1])
     object_to_detect = input_column.text_input(
         "Object detection",
         label_visibility="collapsed",
-        placeholder="e.g. vehicles, radar dish, buildings…",
+        placeholder="e.g. vehicles, radar dish, buildings...",
         key=f"object-detection-{base_id}",
     )
     detect_clicked = button_column.button(
-        "Detect ↗",
+        "Detect",
         key=f"detect-button-{base_id}",
         use_container_width=True,
     )
@@ -504,12 +316,13 @@ def render_base_page(base_id: str, base_data: dict[str, Any]) -> None:
     if not isinstance(commander_summary, dict):
         commander_summary = {}
 
-    render_page_title(f"{country} - {base_id}")
+    render_page_title(f"📍 {country} - {base_id}")
 
     image_path = get_base_image_path(base_id, base_data)
     image_column, metadata_column = st.columns([2, 1])
 
     with image_column:
+        st.subheader("🛰️ Satellite Map")
         image_slot = st.empty()
         detection_result = st.session_state.get(f"detection-result-{base_id}")
 
@@ -525,6 +338,7 @@ def render_base_page(base_id: str, base_data: dict[str, Any]) -> None:
             st.warning(f"Screenshot not found: {image_path}")
 
     with metadata_column:
+        st.subheader("Details")
         render_metadata_panel(base_data)
 
     render_object_detection_section(base_id, image_path, image_slot)
@@ -548,58 +362,51 @@ def render_base_page(base_id: str, base_data: dict[str, Any]) -> None:
 def render_sidebar_navigation(
     data: dict[str, dict[str, Any]],
     sorted_base_ids: list[str],
-) -> str:
-    if "selected_page" not in st.session_state:
-        st.session_state.selected_page = MAP_PAGE_LABEL
+) -> str | None:
+    if "selected_base_id" not in st.session_state:
+        st.session_state.selected_base_id = None
 
+    st.sidebar.title("Military Base Analyzer")
     st.sidebar.button(
         MAP_PAGE_LABEL,
         key="nav-map",
         use_container_width=True,
-        on_click=lambda: st.session_state.update(selected_page=MAP_PAGE_LABEL),
+        on_click=lambda: st.session_state.update(selected_base_id=None),
     )
 
     grouped_base_ids = group_base_ids_by_country(data, sorted_base_ids)
     sorted_countries = sorted(grouped_base_ids.keys())
 
-    for country_index, country in enumerate(sorted_countries):
-        if country_index:
-            st.sidebar.markdown('<hr class="country-divider">', unsafe_allow_html=True)
-
-        with st.sidebar.expander(country_label(country), expanded=True):
+    for country in sorted_countries:
+        with st.sidebar.expander(country, expanded=False):
             for base_id in grouped_base_ids[country]:
-                page_label = base_label(base_id, data[base_id])
                 st.button(
                     f"Base {base_id}",
                     key=f"nav-base-{base_id}",
                     use_container_width=True,
-                    on_click=lambda label=page_label: st.session_state.update(
-                        selected_page=label,
+                    on_click=lambda selected_base_id=base_id: st.session_state.update(
+                        selected_base_id=selected_base_id,
                     ),
                 )
 
-    return st.session_state.selected_page
+    selected_base_id = st.session_state.selected_base_id
+    return selected_base_id if selected_base_id in data else None
 
 
 def main() -> None:
     st.set_page_config(page_title="Military Base Analyzer", layout="wide")
-    apply_custom_css()
     data = load_base_data()
 
     sorted_base_ids = sorted(
         data.keys(),
         key=lambda base_id: sort_base_id(base_id, data[base_id]),
     )
-    label_to_base_id = {
-        base_label(base_id, data[base_id]): base_id for base_id in sorted_base_ids
-    }
-    selected_page = render_sidebar_navigation(data, sorted_base_ids)
+    selected_base_id = render_sidebar_navigation(data, sorted_base_ids)
 
-    if selected_page == MAP_PAGE_LABEL or selected_page not in label_to_base_id:
+    if selected_base_id is None:
         render_map_page(data)
         return
 
-    selected_base_id = label_to_base_id[selected_page]
     render_base_page(selected_base_id, data[selected_base_id])
 
 
