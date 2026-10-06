@@ -15,7 +15,7 @@ BOX_WIDTH = 4
 @lru_cache(maxsize=1)
 def get_moondream_model():
     load_dotenv()
-    api_key = os.getenv("MOONDREAM_API_KEY")
+    api_key = os.getenv(API_KEY_ENV_VAR)
 
     if not api_key:
         raise ValueError(f"{API_KEY_ENV_VAR} was not found in the .env file.")
