@@ -6,7 +6,7 @@ import time
 from io import BytesIO
 from pathlib import Path
 
-from LLM_military_bases_analysis import analyze_military_base, commander_analysis
+from base_analyzer.analyst import analyze_military_base, commander_analysis
 from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options

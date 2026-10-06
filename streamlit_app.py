@@ -5,7 +5,7 @@ from typing import Any
 
 import streamlit as st
 
-from Object_detection import detect_objects_in_image
+from base_analyzer.object_detection import detect_objects_in_image
 
 
 DATA_PATH = Path("data.json")
