@@ -35,7 +35,13 @@ cp .env.example .env   # then add your keys
 streamlit run streamlit_app.py
 ```
 
-`data.json` in this repo already holds 15 analyzed bases. The screenshots are not committed, so a fresh clone shows the analyses without images. Run the collector to generate the images again.
+`data.json` in this repo already holds 15 analyzed bases.
+
+### Screenshots
+
+Each base's screenshot is the first view its analysts saw. Screenshots were mainly a debugging aid, a way to check what the analysts were actually looking at. The dashboard also uses them for the satellite image and for object detection.
+
+They are not committed: they are Google Earth imagery, and the collector takes them again. Without them, a base page shows the analysts' reports and an **Open in Google Earth** link, and object detection is hidden.
 
 ## Run the collector
 

@@ -5,7 +5,9 @@ from typing import Any
 
 import streamlit as st
 
+from base_analyzer.analysis_loop import View
 from base_analyzer.base_store import AnalystReport, Base, BaseStore, CommanderSummary
+from base_analyzer.camera import google_earth_url
 from base_analyzer.object_detection import detect_objects_in_image
 
 
@@ -150,9 +152,6 @@ def render_object_detection_section(
         width="stretch",
     )
 
-    if not image_path.exists():
-        return
-
     detection_result_key = f"detection-result-{base_id}"
     cleaned_object_to_detect = object_to_detect.strip()
 
@@ -210,7 +209,10 @@ def render_base_page(base: Base) -> None:
         elif image_path.exists():
             image_slot.image(str(image_path), caption=image_path.name, width="stretch")
         else:
-            st.warning(f"Screenshot not found: {image_path.name}")
+            st.info("No screenshot for this base. Run the collector to take one.")
+            base_coordinates = coordinates(base)
+            if base_coordinates is not None:
+                st.link_button("Open in Google Earth", google_earth_url(View(*base_coordinates)))
 
     with details_column:
         st.subheader("Details")
@@ -219,7 +221,8 @@ def render_base_page(base: Base) -> None:
             hide_index=True,
         )
 
-    render_object_detection_section(base.id, image_path, image_slot)
+    if image_path.exists():
+        render_object_detection_section(base.id, image_path, image_slot)
 
     tab_names = ["Commander"] + [
         f"Analysis {index}" for index in range(1, len(base.analyst_reports) + 1)
