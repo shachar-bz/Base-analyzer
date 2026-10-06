@@ -7,6 +7,14 @@ from io import BytesIO
 from pathlib import Path
 
 from base_analyzer.analyst import analyze_military_base, commander_analysis
+from base_analyzer.base_store import (
+    PROJECT_DIR,
+    UNKNOWN_COUNTRY,
+    AnalystReport,
+    Base,
+    BaseStore,
+    CommanderSummary,
+)
 from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -24,10 +32,8 @@ ZOOM_OUT_MULTIPLIER = 1.2
 MOVE_LEFT_LONGITUDE_DELTA = -0.002
 MOVE_RIGHT_LONGITUDE_DELTA = 0.002
 
-CSV_PATH = Path("military_bases.csv")
-DATA_PATH = Path("data.json")
-SCREENSHOTS_DIR = Path("bases_screenshots")
-SELENIUM_DIR = Path(".selenium")
+CSV_PATH = PROJECT_DIR / "military_bases.csv"
+SELENIUM_DIR = PROJECT_DIR / ".selenium"
 CHROME_PROFILE_DIR = SELENIUM_DIR / "chrome-profile"
 CHROME_CACHE_DIR = SELENIUM_DIR / "chrome-cache"
 SELENIUM_MANAGER_CACHE_DIR = SELENIUM_DIR / "manager-cache"
@@ -82,8 +88,8 @@ def create_driver() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 
-def read_base_rows(csv_path: Path,rows_to_process: int = ROWS_TO_PROCCESS,) -> list[dict[str, str]]:
-    base_rows = []
+def read_base_list(csv_path: Path, rows_to_process: int = ROWS_TO_PROCCESS) -> list[Base]:
+    bases = []
 
     with csv_path.open(newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
@@ -94,48 +100,29 @@ def read_base_rows(csv_path: Path,rows_to_process: int = ROWS_TO_PROCCESS,) -> l
             except StopIteration:
                 break
 
-            base_rows.append(
-                {
-                    "id": (row.get("id") or "").strip(),
-                    "country_name": (row.get("country") or"").strip(),
-                    "latitude": (row.get("latitude") or "").strip(),
-                    "longitude": (row.get("longitude") or "").strip(),
-                }
+            bases.append(
+                Base(
+                    id=(row.get("id") or "").strip(),
+                    country=(row.get("country") or "").strip() or UNKNOWN_COUNTRY,
+                    latitude=(row.get("latitude") or "").strip(),
+                    longitude=(row.get("longitude") or "").strip(),
+                )
             )
 
-    return base_rows
-
-
-def load_analysis_data(data_path: Path) -> dict:
-    if not data_path.exists():
-        return {}
-
-    with data_path.open(encoding="utf-8") as data_file:
-        try:
-            return json.load(data_file)
-        except json.JSONDecodeError:
-            return {}
-
-
-def save_analysis_data(data_path: Path, analysis_data: dict) -> None:
-    with data_path.open("w", encoding="utf-8") as data_file:
-        json.dump(analysis_data, data_file, indent=2)
+    return bases
 
 
 def screenshot_base(
     driver: webdriver.Chrome,
     base_row: dict[str, str],
+    screenshot_path: Path,
     distance: str = GOOGLE_EARTH_DISTANCE,
     heading: str = GOOGLE_EARTH_HEADING,
-    screenshot_path: Path | None = None,
 ) -> Path:
     base_id = base_row["id"]
     latitude = base_row["latitude"]
     longitude = base_row["longitude"]
     earth_url = build_google_earth_url(latitude, longitude, distance, heading)
-
-    if screenshot_path is None:
-        screenshot_path = SCREENSHOTS_DIR / f"base_{base_id}.jpg"
 
     print(f"Opening base {base_id}: {earth_url}")
     driver.get(earth_url)
@@ -235,15 +222,14 @@ def save_resized_jpeg_screenshot(
         resized_image.save(screenshot_path, format="JPEG", quality=JPEG_QUALITY)
 
 
-def get_overall_analyzation(country_name, base_id, latitude, longitude) -> str:
-    SCREENSHOTS_DIR.mkdir(exist_ok=True)
+def get_overall_analyzation(country_name, base_id, latitude, longitude, saved_base_screenshot_path) -> str:
+    saved_base_screenshot_path.parent.mkdir(parents=True, exist_ok=True)
 
     distance = float(GOOGLE_EARTH_DISTANCE.rstrip("d"))
     current_longitude = float(longitude)
     heading = GOOGLE_EARTH_HEADING
     history_of_analysts = ""
     history_records = []
-    saved_base_screenshot_path = SCREENSHOTS_DIR / f"{country_name}_{base_id}_base.jpg"
 
     driver = None
     consecutive_google_earth_failures = 0
@@ -273,9 +259,9 @@ def get_overall_analyzation(country_name, base_id, latitude, longitude) -> str:
                             "latitude": latitude,
                             "longitude": str(current_longitude),
                         },
+                        screenshot_path,
                         f"{distance}d",
                         heading,
-                        screenshot_path,
                     )
                     consecutive_google_earth_failures = 0
                     break
@@ -375,33 +361,30 @@ def get_commander_analysis(history_of_analysts):
 
 
 def main() -> None:
-    SCREENSHOTS_DIR.mkdir(exist_ok=True)
-    base_rows = read_base_rows(CSV_PATH, ROWS_TO_PROCCESS)
-    analysis_data = load_analysis_data(DATA_PATH)
+    store = BaseStore()
+    analyzed_bases = store.load()
 
-    for base_row in base_rows:
-        base_id = base_row["id"]
-
-        if base_id in analysis_data:
-            print(f"Skipping base {base_id}; already exists in {DATA_PATH}.")
+    for base in read_base_list(CSV_PATH, ROWS_TO_PROCCESS):
+        if base.id in analyzed_bases:
+            print(f"Skipping base {base.id}; already exists in {store.data_path.name}.")
             continue
 
         history_of_analysts = get_overall_analyzation(
-            base_row["country_name"],
-            base_id,
-            base_row["latitude"],
-            base_row["longitude"],
+            base.country,
+            base.id,
+            base.latitude,
+            base.longitude,
+            store.screenshot_path(base),
         )
-        commander_summary = get_commander_analysis(history_of_analysts)
+        base.analyst_reports = [
+            AnalystReport.from_dict(record) for record in json.loads(history_of_analysts)
+        ]
+        base.commander_summary = CommanderSummary.from_dict(
+            get_commander_analysis(history_of_analysts)
+        )
 
-        analysis_data[base_id] = {
-            "country": base_row["country_name"],
-            "latitude": base_row["latitude"],
-            "longitude": base_row["longitude"],
-            "analyst_history": json.loads(history_of_analysts),
-            "commander_summary": commander_summary,
-        }
-        save_analysis_data(DATA_PATH, analysis_data)
+        analyzed_bases[base.id] = base
+        store.save(analyzed_bases)
 
 
 if __name__ == "__main__":

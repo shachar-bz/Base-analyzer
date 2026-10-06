@@ -5,43 +5,21 @@ from typing import Any
 
 import streamlit as st
 
+from base_analyzer.base_store import AnalystReport, Base, BaseStore, CommanderSummary
 from base_analyzer.object_detection import detect_objects_in_image
 
 
-DATA_PATH = Path("data.json")
-SCREENSHOTS_DIR = Path("bases_screenshots")
 MAP_PAGE_LABEL = "🌐 Global Overview"
-ANALYSIS_KEYS = {"analyst_history", "commander_summary"}
+
+store = BaseStore()
 
 
-def render_page_title(title: str) -> None:
-    st.title(title)
-
-
-def load_base_data() -> dict[str, dict[str, Any]]:
-    if not DATA_PATH.exists():
-        st.error(f"Could not find {DATA_PATH}.")
-        return {}
-
+def load_bases() -> dict[str, Base]:
     try:
-        with DATA_PATH.open(encoding="utf-8") as data_file:
-            data = json.load(data_file)
+        return store.load()
     except json.JSONDecodeError:
-        st.error(f"{DATA_PATH} is not valid JSON.")
+        st.error(f"{store.data_path.name} is not valid JSON.")
         return {}
-
-    if not isinstance(data, dict):
-        st.error(f"{DATA_PATH} must contain a JSON object keyed by base id.")
-        return {}
-
-    return data
-
-
-def parse_coordinate(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def clean_list_item(value: Any) -> str:
@@ -49,16 +27,9 @@ def clean_list_item(value: Any) -> str:
     return text[1:].strip() if text.startswith("-") else text
 
 
-def as_list(value: Any) -> list[Any]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
-
-
-def render_bullets(items: Any, empty_text: str = "No data available.") -> None:
-    cleaned_items = [clean_list_item(item) for item in as_list(items)]
+def render_bullets(items: list[str] | str, empty_text: str = "No data available.") -> None:
+    items = [items] if isinstance(items, str) else items
+    cleaned_items = [clean_list_item(item) for item in items]
     cleaned_items = [item for item in cleaned_items if item]
 
     if not cleaned_items:
@@ -69,182 +40,93 @@ def render_bullets(items: Any, empty_text: str = "No data available.") -> None:
         st.markdown(f"- {item}")
 
 
-def sort_base_id(base_id: str, base_data: dict[str, Any]) -> tuple[str, int, int | str]:
-    country = str(base_data.get("country") or "")
-    if str(base_id).isdigit():
-        return (country, 0, int(base_id))
+def sort_key(base: Base) -> tuple[str, int, int | str]:
+    if base.id.isdigit():
+        return (base.country, 0, int(base.id))
 
-    return (country, 1, str(base_id))
-
-
-def group_base_ids_by_country(
-    data: dict[str, dict[str, Any]],
-    sorted_base_ids: list[str],
-) -> dict[str, list[str]]:
-    grouped_base_ids = defaultdict(list)
-
-    for base_id in sorted_base_ids:
-        country = data[base_id].get("country") or "Unknown"
-        grouped_base_ids[str(country)].append(base_id)
-
-    return dict(grouped_base_ids)
+    return (base.country, 1, base.id)
 
 
-def get_base_image_path(base_id: str, base_data: dict[str, Any]) -> Path:
-    country = base_data.get("country") or "Unknown"
-    return SCREENSHOTS_DIR / f"{country}_{base_id}_base.jpg"
+def group_by_country(sorted_bases: list[Base]) -> dict[str, list[Base]]:
+    grouped_bases = defaultdict(list)
+
+    for base in sorted_bases:
+        grouped_bases[base.country].append(base)
+
+    return dict(grouped_bases)
 
 
-def is_displayable_metadata(value: Any) -> bool:
-    return isinstance(value, str | int | float | bool) and value != ""
+def base_details(base: Base) -> dict[str, str]:
+    return {"Country": base.country, "Latitude": base.latitude, "Longitude": base.longitude}
 
 
-def humanize_key(key: str) -> str:
-    return key.replace("_", " ").strip().title()
+def coordinates(base: Base) -> tuple[float, float] | None:
+    try:
+        return float(base.latitude), float(base.longitude)
+    except ValueError:
+        return None
 
 
-def render_metadata_panel(base_data: dict[str, Any]) -> None:
-    metadata_rows = [
-        {"Field": humanize_key(key), "Value": value}
-        for key, value in base_data.items()
-        if key not in ANALYSIS_KEYS and is_displayable_metadata(value)
-    ]
-
-    if metadata_rows:
-        st.dataframe(metadata_rows, hide_index=True, use_container_width=True)
-    else:
-        st.caption("No metadata available.")
-
-
-def build_map_rows(data: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def build_map_rows(bases: list[Base]) -> list[dict[str, Any]]:
     map_rows = []
 
-    for base_id, base_data in data.items():
-        latitude = parse_coordinate(base_data.get("latitude"))
-        longitude = parse_coordinate(base_data.get("longitude"))
-
-        if latitude is None or longitude is None:
+    for base in bases:
+        base_coordinates = coordinates(base)
+        if base_coordinates is None:
             continue
 
-        map_rows.append(
-            {
-                "id": base_id,
-                "country": base_data.get("country") or "Unknown",
-                "lat": latitude,
-                "lon": longitude,
-            }
-        )
+        latitude, longitude = base_coordinates
+        map_rows.append({"id": base.id, "country": base.country, "lat": latitude, "lon": longitude})
 
     return map_rows
 
 
-def collect_display_keys(data: dict[str, dict[str, Any]]) -> list[str]:
-    display_keys = []
+def render_map_page(sorted_bases: list[Base]) -> None:
+    st.title(MAP_PAGE_LABEL)
 
-    for base_data in data.values():
-        for key, value in base_data.items():
-            if (
-                key not in ANALYSIS_KEYS
-                and key not in display_keys
-                and is_displayable_metadata(value)
-            ):
-                display_keys.append(key)
-
-    return display_keys
-
-
-def build_table_rows(
-    data: dict[str, dict[str, Any]],
-    base_ids: list[str],
-) -> list[dict[str, Any]]:
-    display_keys = collect_display_keys(data)
-    table_rows = []
-
-    for base_id in base_ids:
-        base_data = data[base_id]
-        row = {"id": base_id}
-        for key in display_keys:
-            row[humanize_key(key)] = base_data.get(key, "")
-        table_rows.append(row)
-
-    return table_rows
-
-
-def count_distinct_values(data: dict[str, dict[str, Any]], key: str) -> int:
-    return len(
-        {
-            str(base_data[key])
-            for base_data in data.values()
-            if is_displayable_metadata(base_data.get(key))
-        }
-    )
-
-
-def render_data_metrics(data: dict[str, dict[str, Any]]) -> None:
-    metrics = [("Bases", len(data))]
-
-    if any(is_displayable_metadata(base_data.get("country")) for base_data in data.values()):
-        metrics.append(("Countries", count_distinct_values(data, "country")))
-
-    if any(is_displayable_metadata(base_data.get("region")) for base_data in data.values()):
-        metrics.append(("Regions", count_distinct_values(data, "region")))
-
-    columns = st.columns(len(metrics))
-    for column, (label, value) in zip(columns, metrics):
-        column.metric(label, value)
-
-
-def render_map_page(data: dict[str, dict[str, Any]]) -> None:
-    render_page_title("🌐 Global Overview")
-
-    map_rows = build_map_rows(data)
+    map_rows = build_map_rows(sorted_bases)
     if not map_rows:
         st.warning("No bases with valid latitude and longitude were found.")
         return
 
-    sorted_base_ids = sorted(
-        data.keys(),
-        key=lambda base_id: sort_base_id(base_id, data[base_id]),
-    )
-
     _, map_column, _ = st.columns([1, 3, 1])
     with map_column:
-        render_data_metrics(data)
+        bases_column, countries_column = st.columns(2)
+        bases_column.metric("Bases", len(sorted_bases))
+        countries_column.metric("Countries", len({base.country for base in sorted_bases}))
         st.subheader("🗺️ Map")
         st.map(map_rows, latitude="lat", longitude="lon", size=50, height=380)
 
     st.subheader("Bases")
     st.dataframe(
-        build_table_rows(data, sorted_base_ids),
+        [{"id": base.id, **base_details(base)} for base in sorted_bases],
         hide_index=True,
-        use_container_width=True,
     )
 
 
-def render_commander_tab(commander_summary: dict[str, Any]) -> None:
+def render_commander_tab(commander_summary: CommanderSummary) -> None:
     st.subheader("Summary")
-    summary = commander_summary.get("summary")
-    if summary:
-        st.write(summary)
+    if commander_summary.summary:
+        st.write(commander_summary.summary)
     else:
         st.caption("No summary available.")
 
     st.subheader("🧠 Commander Analysis")
-    render_bullets(commander_summary.get("supported_observations"))
+    render_bullets(commander_summary.supported_observations)
 
     st.subheader("✅ Recommendations")
-    render_bullets(commander_summary.get("recommendations"))
+    render_bullets(commander_summary.recommendations)
 
 
-def render_analyst_tab(analysis_record: dict[str, Any]) -> None:
+def render_analyst_tab(report: AnalystReport) -> None:
     st.subheader("Findings")
-    render_bullets(analysis_record.get("findings"))
+    render_bullets(report.findings)
 
     st.subheader("Analysis")
-    render_bullets(analysis_record.get("analysis"))
+    render_bullets(report.analysis)
 
     st.subheader("Things To Continue Analyze")
-    render_bullets(analysis_record.get("things_to_continue_analyzing"))
+    render_bullets(report.things_to_continue_analyzing)
 
 
 def render_object_detection_section(
@@ -265,7 +147,7 @@ def render_object_detection_section(
     detect_clicked = button_column.button(
         "Detect",
         key=f"detect-button-{base_id}",
-        use_container_width=True,
+        width="stretch",
     )
 
     if not image_path.exists():
@@ -297,7 +179,7 @@ def render_object_detection_section(
                 image_slot.image(
                     annotated_image,
                     caption=st.session_state[detection_result_key]["caption"],
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.success(
                     f"Detected {detection_count} objects for: {cleaned_object_to_detect}"
@@ -308,61 +190,54 @@ def render_object_detection_section(
             st.error(f"Could not detect {cleaned_object_to_detect}: {error}")
 
 
-def render_base_page(base_id: str, base_data: dict[str, Any]) -> None:
-    country = base_data.get("country") or "Unknown"
-    analyst_history = as_list(base_data.get("analyst_history"))
-    commander_summary = base_data.get("commander_summary") or {}
+def render_base_page(base: Base) -> None:
+    st.title(f"📍 {base.country} - {base.id}")
 
-    if not isinstance(commander_summary, dict):
-        commander_summary = {}
-
-    render_page_title(f"📍 {country} - {base_id}")
-
-    image_path = get_base_image_path(base_id, base_data)
-    image_column, metadata_column = st.columns([2, 1])
+    image_path = store.screenshot_path(base)
+    image_column, details_column = st.columns([2, 1])
 
     with image_column:
         st.subheader("🛰️ Satellite Map")
         image_slot = st.empty()
-        detection_result = st.session_state.get(f"detection-result-{base_id}")
+        detection_result = st.session_state.get(f"detection-result-{base.id}")
 
         if image_path.exists() and detection_result:
             image_slot.image(
                 detection_result["image"],
                 caption=detection_result["caption"],
-                use_container_width=True,
+                width="stretch",
             )
         elif image_path.exists():
-            image_slot.image(str(image_path), caption=image_path.name, use_container_width=True)
+            image_slot.image(str(image_path), caption=image_path.name, width="stretch")
         else:
-            st.warning(f"Screenshot not found: {image_path}")
+            st.warning(f"Screenshot not found: {image_path.name}")
 
-    with metadata_column:
+    with details_column:
         st.subheader("Details")
-        render_metadata_panel(base_data)
+        st.dataframe(
+            [{"Field": field, "Value": value} for field, value in base_details(base).items()],
+            hide_index=True,
+        )
 
-    render_object_detection_section(base_id, image_path, image_slot)
+    render_object_detection_section(base.id, image_path, image_slot)
 
     tab_names = ["Commander"] + [
-        f"Analysis {index}" for index in range(1, len(analyst_history) + 1)
+        f"Analysis {index}" for index in range(1, len(base.analyst_reports) + 1)
     ]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
-        render_commander_tab(commander_summary)
+        render_commander_tab(base.commander_summary)
 
-    for tab, analysis_record in zip(tabs[1:], analyst_history):
+    for tab, report in zip(tabs[1:], base.analyst_reports):
         with tab:
-            if isinstance(analysis_record, dict):
-                render_analyst_tab(analysis_record)
-            else:
-                st.caption("No analyst data available.")
+            render_analyst_tab(report)
 
 
 def render_sidebar_navigation(
-    data: dict[str, dict[str, Any]],
-    sorted_base_ids: list[str],
-) -> str | None:
+    bases: dict[str, Base],
+    sorted_bases: list[Base],
+) -> Base | None:
     if "selected_base_id" not in st.session_state:
         st.session_state.selected_base_id = None
 
@@ -370,44 +245,38 @@ def render_sidebar_navigation(
     st.sidebar.button(
         MAP_PAGE_LABEL,
         key="nav-map",
-        use_container_width=True,
+        width="stretch",
         on_click=lambda: st.session_state.update(selected_base_id=None),
     )
 
-    grouped_base_ids = group_base_ids_by_country(data, sorted_base_ids)
-    sorted_countries = sorted(grouped_base_ids.keys())
+    grouped_bases = group_by_country(sorted_bases)
 
-    for country in sorted_countries:
+    for country in sorted(grouped_bases):
         with st.sidebar.expander(country, expanded=False):
-            for base_id in grouped_base_ids[country]:
+            for base in grouped_bases[country]:
                 st.button(
-                    f"Base {base_id}",
-                    key=f"nav-base-{base_id}",
-                    use_container_width=True,
-                    on_click=lambda selected_base_id=base_id: st.session_state.update(
+                    f"Base {base.id}",
+                    key=f"nav-base-{base.id}",
+                    width="stretch",
+                    on_click=lambda selected_base_id=base.id: st.session_state.update(
                         selected_base_id=selected_base_id,
                     ),
                 )
 
-    selected_base_id = st.session_state.selected_base_id
-    return selected_base_id if selected_base_id in data else None
+    return bases.get(st.session_state.selected_base_id)
 
 
 def main() -> None:
     st.set_page_config(page_title="Military Base Analyzer", layout="wide")
-    data = load_base_data()
+    bases = load_bases()
+    sorted_bases = sorted(bases.values(), key=sort_key)
+    selected_base = render_sidebar_navigation(bases, sorted_bases)
 
-    sorted_base_ids = sorted(
-        data.keys(),
-        key=lambda base_id: sort_base_id(base_id, data[base_id]),
-    )
-    selected_base_id = render_sidebar_navigation(data, sorted_base_ids)
-
-    if selected_base_id is None:
-        render_map_page(data)
+    if selected_base is None:
+        render_map_page(sorted_bases)
         return
 
-    render_base_page(selected_base_id, data[selected_base_id])
+    render_base_page(selected_base)
 
 
 if __name__ == "__main__":

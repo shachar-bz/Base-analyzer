@@ -6,3 +6,4 @@ military_bases.csv
 .env
 bases_screenshots/
 .pytest_cache/
+data.json.tmp
