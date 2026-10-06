@@ -77,7 +77,7 @@ Analyst reports:
 """
 
 load_dotenv()
-API_KEY = os.getenv("OPENAI_APY_KEY")
+API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 def encode_jpg_image_as_data_url(image_path: Path) -> str:

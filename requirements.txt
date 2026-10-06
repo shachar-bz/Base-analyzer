@@ -1,0 +1,9 @@
+openai>=3.24
+moondream>=2.6
+pillow>=12.3
+python-dotenv>=1.2
+selenium>=4.50
+streamlit>=1.65
+
+# tests
+pytest>=9.1

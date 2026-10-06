@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from PIL import Image, ImageDraw
 
 
-API_KEY_ENV_VAR = "MOONDREAM_APY_KEY"
+API_KEY_ENV_VAR = "MOONDREAM_API_KEY"
 BOX_COLOR = "red"
 BOX_WIDTH = 4
 
@@ -15,7 +15,7 @@ BOX_WIDTH = 4
 @lru_cache(maxsize=1)
 def get_moondream_model():
     load_dotenv()
-    api_key = os.getenv("MOONDREAM_APY_KEY")
+    api_key = os.getenv("MOONDREAM_API_KEY")
 
     if not api_key:
         raise ValueError(f"{API_KEY_ENV_VAR} was not found in the .env file.")

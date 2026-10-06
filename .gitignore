@@ -5,3 +5,4 @@ chromedriver/
 military_bases.csv
 .env
 bases_screenshots/
+.pytest_cache/
