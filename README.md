@@ -2,6 +2,8 @@
 
 **A team of AI imagery analysts that investigates suspected military sites from satellite imagery, the way a human analyst team would, and a dashboard to explore what they found.**
 
+🎥 **[Watch the demo video](https://drive.google.com/file/d/1NwCNHssuBQ8BT9jI9A-ughrEmuJxSF4E/view?usp=sharing)**
+
 Give it a list of coordinates. For each one, a Selenium-driven browser opens Google Earth, and a series of vision-LLM analysts take turns examining the site. Each analyst reads what the previous ones wrote, then decides where to look next: zoom in, zoom out, pan left or right, or stop. A "commander" model then reconciles all the reports into a single assessment, with every claim tagged High, Medium or Low confidence.
 
 ## What it does
